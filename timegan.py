@@ -136,6 +136,8 @@ def embedder_loss(x, x_tilde, g_loss_s):
 def timegan(ori_data, parameters):
     print("✅ TensorFlow 2.x TimeGAN starting...")
     ori_data = np.asarray(ori_data, dtype=np.float32)
+    print("Original data shape:", ori_data.shape)
+
     
     # Unpack parameters
     hidden_dim = parameters['hidden_dim']
@@ -168,6 +170,7 @@ def timegan(ori_data, parameters):
     print("Start Embedding Network Training...")
     for itt in range(iterations):
         X_mb, T_mb = batch_generator(ori_data, ori_time, batch_size)
+        print("Batch shape for training:", X_mb.shape) 
         with tf.GradientTape() as tape:
             h = embedder(X_mb)
             x_tilde = recovery(h)
@@ -183,6 +186,7 @@ def timegan(ori_data, parameters):
     print("Start Training with Supervised Loss Only...")
     for itt in range(iterations):
         X_mb, T_mb = batch_generator(ori_data, ori_time, batch_size)
+        print("Batch shape for training:", X_mb.shape) 
         Z_mb = random_generator(batch_size, z_dim, T_mb, max_seq_len)
         with tf.GradientTape() as tape:
             e_hat = generator(Z_mb)
