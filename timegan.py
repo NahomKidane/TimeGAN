@@ -135,6 +135,7 @@ def embedder_loss(x, x_tilde, g_loss_s):
 # -----------------------------------------------------------------------------
 def timegan(ori_data, parameters):
     print("✅ TensorFlow 2.x TimeGAN starting...")
+    ori_data = np.asarray(ori_data, dtype=np.float32)
     
     # Unpack parameters
     hidden_dim = parameters['hidden_dim']
