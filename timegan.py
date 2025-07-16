@@ -130,23 +130,24 @@ def embedder_loss(x, x_tilde, g_loss_s):
     e_loss = e_loss0 + 0.1 * g_loss_s
     return e_loss, e_loss0
 
+
 # -----------------------------------------------------------------------------
 # Training Function (TimeGAN main)
 # -----------------------------------------------------------------------------
 def timegan(ori_data, parameters):
     print("✅ TensorFlow 2.x TimeGAN starting...")
-    ori_data = np.asarray(ori_data, dtype=np.float32)
-    print("Original data shape:", ori_data.shape)
 
-    
-    # Unpack parameters
+    # ✅ Keep list if variable-length sequences
+    if isinstance(ori_data, np.ndarray):
+        ori_data = ori_data.astype(np.float32)
+    print(f"Data type: {type(ori_data)}")
+
     hidden_dim = parameters['hidden_dim']
     num_layers = parameters['num_layer']
     iterations = parameters['iterations']
     batch_size = parameters['batch_size']
     module_name = parameters['module']
     gamma = 1
-    z_dim = ori_data.shape[-1]
 
     # Normalize
     ori_data, min_val, max_val = MinMaxScaler(ori_data)
@@ -160,7 +161,6 @@ def timegan(ori_data, parameters):
     supervisor = Supervisor(module_name, hidden_dim, num_layers)
     discriminator = Discriminator(module_name, hidden_dim, num_layers)
 
-    # Optimizers
     opt_e = tf.keras.optimizers.Adam()
     opt_g = tf.keras.optimizers.Adam()
     opt_d = tf.keras.optimizers.Adam()
@@ -170,7 +170,9 @@ def timegan(ori_data, parameters):
     print("Start Embedding Network Training...")
     for itt in range(iterations):
         X_mb, T_mb = batch_generator(ori_data, ori_time, batch_size)
-        print("Batch shape for training:", X_mb.shape) 
+        X_mb = tf.convert_to_tensor(X_mb, dtype=tf.float32)
+        T_mb = tf.convert_to_tensor(T_mb, dtype=tf.int32)
+
         with tf.GradientTape() as tape:
             h = embedder(X_mb)
             x_tilde = recovery(h)
@@ -179,24 +181,27 @@ def timegan(ori_data, parameters):
         opt_e.apply_gradients(zip(grads, embedder.trainable_variables + recovery.trainable_variables))
 
         if itt % 1000 == 0:
-            print(f"step: {itt}/{iterations}, e_loss: {np.round(np.sqrt(e_loss0.numpy()),4)}")
+            print(f"step: {itt}/{iterations}, e_loss: {np.round(np.sqrt(e_loss0.numpy()), 4)}")
 
     # -----------------------------------------------------------------------------
     # 2. Supervised Loss Training
     print("Start Training with Supervised Loss Only...")
     for itt in range(iterations):
         X_mb, T_mb = batch_generator(ori_data, ori_time, batch_size)
-        print("Batch shape for training:", X_mb.shape) 
-        Z_mb = random_generator(batch_size, z_dim, T_mb, max_seq_len)
+        X_mb = tf.convert_to_tensor(X_mb, dtype=tf.float32)
+        T_mb = tf.convert_to_tensor(T_mb, dtype=tf.int32)
+        Z_mb = random_generator(batch_size, dim, T_mb, max_seq_len)
+        Z_mb = tf.convert_to_tensor(Z_mb, dtype=tf.float32)
+
         with tf.GradientTape() as tape:
             e_hat = generator(Z_mb)
             h_hat_supervise = supervisor(e_hat)
-            g_loss_s = mse(embedder(X_mb)[:,1:,:], h_hat_supervise[:,:-1,:])
+            g_loss_s = mse(embedder(X_mb)[:, 1:, :], h_hat_supervise[:, :-1, :])
         grads = tape.gradient(g_loss_s, generator.trainable_variables + supervisor.trainable_variables)
         opt_g.apply_gradients(zip(grads, generator.trainable_variables + supervisor.trainable_variables))
 
         if itt % 1000 == 0:
-            print(f"step: {itt}/{iterations}, s_loss: {np.round(np.sqrt(g_loss_s.numpy()),4)}")
+            print(f"step: {itt}/{iterations}, s_loss: {np.round(np.sqrt(g_loss_s.numpy()), 4)}")
 
     # -----------------------------------------------------------------------------
     # 3. Joint Training
@@ -204,7 +209,11 @@ def timegan(ori_data, parameters):
     for itt in range(iterations):
         for _ in range(2):  # Generator twice
             X_mb, T_mb = batch_generator(ori_data, ori_time, batch_size)
-            Z_mb = random_generator(batch_size, z_dim, T_mb, max_seq_len)
+            X_mb = tf.convert_to_tensor(X_mb, dtype=tf.float32)
+            T_mb = tf.convert_to_tensor(T_mb, dtype=tf.int32)
+            Z_mb = random_generator(batch_size, dim, T_mb, max_seq_len)
+            Z_mb = tf.convert_to_tensor(Z_mb, dtype=tf.float32)
+
             with tf.GradientTape(persistent=True) as tape:
                 h = embedder(X_mb)
                 x_tilde = recovery(h)
@@ -219,15 +228,17 @@ def timegan(ori_data, parameters):
                 g_loss, g_loss_s = generator_loss(y_fake, y_fake_e, h, h_hat_supervise, X_mb, x_hat, gamma)
                 e_loss, e_loss0 = embedder_loss(X_mb, x_tilde, g_loss_s)
 
-            # Generator + Embedder updates
             grads_g = tape.gradient(g_loss, generator.trainable_variables + supervisor.trainable_variables)
             opt_g.apply_gradients(zip(grads_g, generator.trainable_variables + supervisor.trainable_variables))
             grads_e = tape.gradient(e_loss, embedder.trainable_variables + recovery.trainable_variables)
             opt_e.apply_gradients(zip(grads_e, embedder.trainable_variables + recovery.trainable_variables))
 
-        # Discriminator
         X_mb, T_mb = batch_generator(ori_data, ori_time, batch_size)
-        Z_mb = random_generator(batch_size, z_dim, T_mb, max_seq_len)
+        X_mb = tf.convert_to_tensor(X_mb, dtype=tf.float32)
+        T_mb = tf.convert_to_tensor(T_mb, dtype=tf.int32)
+        Z_mb = random_generator(batch_size, dim, T_mb, max_seq_len)
+        Z_mb = tf.convert_to_tensor(Z_mb, dtype=tf.float32)
+
         with tf.GradientTape() as tape:
             h = embedder(X_mb)
             e_hat = generator(Z_mb)
@@ -241,12 +252,13 @@ def timegan(ori_data, parameters):
             opt_d.apply_gradients(zip(grads_d, discriminator.trainable_variables))
 
         if itt % 1000 == 0:
-            print(f"step: {itt}/{iterations}, d_loss: {np.round(d_loss.numpy(),4)}, g_loss_s: {np.round(np.sqrt(g_loss_s.numpy()),4)}")
+            print(f"step: {itt}/{iterations}, d_loss: {np.round(d_loss.numpy(), 4)}, g_loss_s: {np.round(np.sqrt(g_loss_s.numpy()), 4)}")
 
     # -----------------------------------------------------------------------------
     # Synthetic Data Generation
     print("Generating synthetic data...")
-    Z_mb = random_generator(no, z_dim, ori_time, max_seq_len)
+    Z_mb = random_generator(no, dim, ori_time, max_seq_len)
+    Z_mb = tf.convert_to_tensor(Z_mb, dtype=tf.float32)
     h_hat = supervisor(generator(Z_mb))
     generated_data_curr = recovery(h_hat).numpy()
 
